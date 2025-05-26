@@ -216,11 +216,7 @@ class ShareLimits:
                     # Determine if ratio rule implies a change, but don't apply it yet.
                     # The actual application will happen in set_tags_and_limits.
                     # Log that the ratio condition is met.
-                    logger.print_line(
-                        f"Torrent: {t_name} [Hash: {t_hash}] reached ratio {current_ratio:.2f} >= "
-                        f"{ratio_limit_target_ratio}. Target speed limit for this rule: {ratio_limit_speed_kib} KiB/s.",
-                        self.config.loglevel
-                    )
+                    logger.print_line("DIAGNOSTIC_LOG_FOR_RATIO_TRIGGER", "INFO")
                     effective_upload_limit_kib = ratio_limit_speed_kib
                     ratio_speed_limit_active_and_applied = True # Flag that this rule's speed should be considered
                     # No direct torrent.set_upload_limit() call here.
