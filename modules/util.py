@@ -16,6 +16,77 @@ from ruamel.yaml.constructor import ConstructorError
 
 logger = logging.getLogger("qBit Manage")
 
+# Define TRACE log level
+TRACE_LEVEL_NUM = 5  # Lower than DEBUG (10)
+logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
+
+def logger_trace(self, message, *args, **kws):
+    if self.isEnabledFor(TRACE_LEVEL_NUM):
+        # Yes, logger takes its '*args' as 'args'.
+        self._log(TRACE_LEVEL_NUM, message, args, **kws)
+
+def logger_separator(self, message, space=True, border=True, loglevel="INFO"):
+    # Ensure loglevel is a string and upper, default to INFO
+    if not isinstance(loglevel, str):
+        loglevel_str = "INFO"
+    else:
+        loglevel_str = loglevel.upper()
+
+    # Get the actual logging method (e.g., self.info, self.debug)
+    # Fallback to self.info if the level doesn't exist
+    log_method = getattr(self, loglevel_str.lower(), self.info)
+    
+    # Simplified separator logic based on common usage
+    # Real implementation might use screen width from config if available
+    separator_line = "=" * 80 
+
+    if space:
+        log_method("")
+    if border:
+        log_method(separator_line)
+    if message: # Only log message if it's not empty
+        log_method(str(message)) # Ensure message is a string
+    if border:
+        log_method(separator_line)
+    if space:
+        log_method("")
+    return [] # To match original behavior if it was collecting messages
+
+def logger_print_line(self, message, loglevel="INFO"):
+    # Ensure loglevel is a string and upper, default to INFO
+    if not isinstance(loglevel, str):
+        loglevel_str = "INFO"
+    else:
+        loglevel_str = loglevel.upper()
+
+    # Get the actual logging method
+    log_method = getattr(self, loglevel_str.lower(), self.info)
+    log_method(str(message)) # Ensure message is string
+    return [str(message)] # To match original behavior if it was collecting messages
+
+def logger_insert_space(self, text, spaces):
+    return f"{' ' * spaces}{str(text)}" # Ensure text is string
+
+# Bind methods to the logger instance
+import types
+logger.trace = types.MethodType(logger_trace, logger)
+logger.separator = types.MethodType(logger_separator, logger)
+logger.print_line = types.MethodType(logger_print_line, logger)
+logger.insert_space = types.MethodType(logger_insert_space, logger)
+
+# Add stacktrace method if it's missing, as it's used in the codebase
+if not hasattr(logger, 'stacktrace'):
+    def logger_stacktrace(self, message="", level="error"):
+        # A basic stacktrace, actual might involve more context
+        import traceback
+        exc_info = traceback.format_exc()
+        log_method = getattr(self, level.lower(), self.error)
+        if message:
+            log_method(f"{message}\n{exc_info}")
+        else:
+            log_method(exc_info)
+    logger.stacktrace = types.MethodType(logger_stacktrace, logger)
+
 
 def get_list(data, lower=False, split=True, int_list=False, upper=False):
     """Return a list from a string or list."""

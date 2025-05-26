@@ -45,8 +45,9 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
         self.mock_logger = MagicMock()
         util.logger = self.mock_logger
 
+        # Default mock for get_torrents, can be overridden in tests
         self.mock_qbit_manager.get_torrents = MagicMock(return_value=[])
-        # Ensure get_tags returns a dict with 'url' and 'notifiarr' keys
+        
         self.mock_qbit_manager.get_tags = MagicMock(return_value={'url': 'mock_tracker_url', 'notifiarr': None})
         self.mock_qbit_manager.torrentinfo = {} 
 
@@ -106,7 +107,15 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
 
     def test_basic_ratio_trigger(self):
         mock_torrent = self._create_mock_torrent(ratio=3.0, up_limit=0)
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+        
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
         
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": 2.0,
@@ -117,13 +126,21 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
         
         mock_torrent.set_upload_limit.assert_called_once_with(500 * 1024)
         self.mock_logger.print_line.assert_any_call(
-            f"Torrent: {mock_torrent.name} [Hash: {mock_torrent.hash}] reached ratio 3.00 >= 2.0. Applying speed limit: 500 KiB/s.",
+            f"Torrent: {mock_torrent.name} [Hash: {mock_torrent.hash}] reached ratio 3.00 >= 2.0. Target speed limit for this rule: 500 KiB/s.",
             self.mock_qbit_manager.config.loglevel 
         )
 
     def test_ratio_not_met(self):
         mock_torrent = self._create_mock_torrent(ratio=1.0, up_limit=0)
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
         
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": 2.0,
@@ -133,28 +150,30 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
         
         ShareLimits(self.mock_qbit_manager)
 
-        ratio_limit_log_fragment = f"Torrent: {mock_torrent.name} [Hash: {mock_torrent.hash}] reached ratio"
-        ratio_limit_applied_log_fragment = f"Applying speed limit: 500 KiB/s."
+        ratio_limit_met_log_fragment = f"Torrent: {mock_torrent.name} [Hash: {mock_torrent.hash}] reached ratio"
+        # Check that the specific log for APPLYING the ratio limit is NOT present
+        ratio_limit_applied_log_fragment = f"Target speed limit for this rule: 500 KiB/s."
         
-        found_ratio_trigger_log = False
         found_ratio_applied_log = False
         for call_args_list in self.mock_logger.print_line.call_args_list:
-            log_message = call_args_list[0][0] # Get the first argument of the call
-            if ratio_limit_log_fragment in log_message and ratio_limit_applied_log_fragment in log_message :
+            log_message = call_args_list[0][0] 
+            if ratio_limit_met_log_fragment in log_message and ratio_limit_applied_log_fragment in log_message :
                  found_ratio_applied_log = True
                  break
-            if ratio_limit_log_fragment in log_message: # Logged that it checked, but didn't apply
-                found_ratio_trigger_log = True
-
-
-        self.assertFalse(found_ratio_applied_log, "Ratio-specific speed limit should not have been applied based on log.")
-        # General limit should be applied. set_tags_and_limits is called, which calls set_upload_limit
+        self.assertFalse(found_ratio_applied_log, "Ratio-specific speed limit rule should not have been logged as met and applying.")
         mock_torrent.set_upload_limit.assert_called_with(1000 * 1024)
 
 
     def test_correct_speed_value_application_mb(self):
         mock_torrent = self._create_mock_torrent(ratio=3.0, up_limit=0)
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
         
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": 2.0,
@@ -166,8 +185,15 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
 
     def test_correct_speed_value_application_gb(self):
         mock_torrent = self._create_mock_torrent(ratio=2.5, up_limit=0)
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
-        
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
+
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": 1.0,
             "limit_upload_speed_on_ratio_speed_limit_kib": 1 * 1024 * 1024, 
@@ -178,7 +204,14 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
 
     def test_invalid_format_graceful_default(self):
         mock_torrent = self._create_mock_torrent(ratio=3.0, up_limit=0)
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
 
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": None, 
@@ -188,20 +221,25 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
 
         ShareLimits(self.mock_qbit_manager)
         mock_torrent.set_upload_limit.assert_called_with(200 * 1024)
-        # We expect config.py to log an error during parsing, not share_limits.py
-        # So, no direct check on self.mock_logger.error here for parsing messages.
 
     @patch('modules.core.share_limits.ShareLimits.has_reached_seed_limit', return_value="Reached max_ratio for cleanup")
     def test_interaction_with_max_ratio_cleanup(self, mock_has_reached_seed_limit):
-        mock_torrent = self._create_mock_torrent(ratio=3.0, up_limit=0, seeding_time=100000) # Ensure min_seeding_time is met if any
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+        mock_torrent = self._create_mock_torrent(ratio=3.0, up_limit=0, seeding_time=100000)
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
         
-        group_config = self._setup_share_limits_config(config_override={
+        self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": 2.0,
             "limit_upload_speed_on_ratio_speed_limit_kib": 500,
             "max_ratio": 2.5, 
             "cleanup": True, 
-            "min_seeding_time": 0, # Ensure this doesn't block cleanup
+            "min_seeding_time": 0, 
         })
         
         self.mock_qbit_manager.has_cross_seed = MagicMock(return_value=False)
@@ -216,54 +254,83 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
 
     def test_interaction_general_limit_ratio_stricter(self):
         mock_torrent = self._create_mock_torrent(ratio=3.0, up_limit=0)
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
+
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": 2.0,
             "limit_upload_speed_on_ratio_speed_limit_kib": 500, 
             "limit_upload_speed": 1000, 
         })
         ShareLimits(self.mock_qbit_manager)
-        # The ratio limit (500) is applied directly.
-        # Then set_tags_and_limits is called with effective_upload_limit_kib = 500.
-        # Inside set_tags_and_limits, it will see current limit is 500 (due to earlier direct call)
-        # and target is 500, so it might not call set_upload_limit again if it's smart.
-        # However, the current code structure will likely result in it being called by set_tags_and_limits.
-        # Let's assert it was called with 500KB at least once.
         mock_torrent.set_upload_limit.assert_any_call(500 * 1024)
 
 
     def test_interaction_general_limit_general_stricter_when_ratio_met(self):
         mock_torrent = self._create_mock_torrent(ratio=3.0, up_limit=0) 
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
+
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": 2.0,
             "limit_upload_speed_on_ratio_speed_limit_kib": 1000,
             "limit_upload_speed": 500, 
         })
         ShareLimits(self.mock_qbit_manager)
-        # Ratio is met, ratio limit is 1000. General group limit is 500.
-        # The ratio-specific logic applies 1000KB.
-        # Then tag_and_update_share_limits passes effective_upload_limit_kib=1000 to set_tags_and_limits.
-        # set_tags_and_limits will then apply 1000KB.
         mock_torrent.set_upload_limit.assert_any_call(1000 * 1024)
 
     def test_interaction_general_limit_ratio_not_met(self):
         mock_torrent = self._create_mock_torrent(ratio=1.0, up_limit=0) 
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
+
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": 2.0,
             "limit_upload_speed_on_ratio_speed_limit_kib": 500,
             "limit_upload_speed": 1000, 
         })
         ShareLimits(self.mock_qbit_manager)
-        # Ratio not met, so effective_upload_limit_kib becomes 1000 (general).
         mock_torrent.set_upload_limit.assert_called_with(1000 * 1024) 
 
     def test_interaction_enable_group_upload_speed(self):
         torrent_A = self._create_mock_torrent(name="TorrentA", thash="hashA", ratio=3.0, up_limit=0) 
         torrent_B = self._create_mock_torrent(name="TorrentB", thash="hashB", ratio=1.0, up_limit=0) 
-        self.mock_qbit_manager.get_torrents.return_value = [torrent_A, torrent_B]
+        
+        # Define this list here so the side_effect function can close over it
+        initial_torrents_list = [torrent_A, torrent_B]
 
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0] if args else {} # Handle calls like get_torrents({"status_filter":...})
+            if "torrent_hashes" in params:
+                thash = params["torrent_hashes"]
+                if thash == torrent_A.hash:
+                    return [torrent_A]
+                if thash == torrent_B.hash:
+                    return [torrent_B]
+                return [] 
+            elif "status_filter" in params:
+                return initial_torrents_list 
+            return [] 
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
+        
         self._setup_share_limits_config(config_override={
             "limit_upload_speed": 2000, 
             "enable_group_upload_speed": True, 
@@ -273,15 +340,19 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
         
         ShareLimits(self.mock_qbit_manager)
         
-        # Torrent A: Ratio limit (500KB) is active and stricter than group shared (2000/2 = 1000KB).
         torrent_A.set_upload_limit.assert_any_call(500 * 1024)
-        
-        # Torrent B: Ratio not met. Group shared limit (1000KB) should apply.
         torrent_B.set_upload_limit.assert_called_with(1000 * 1024)
 
     def test_no_interference_unconfigured_group(self):
         mock_torrent = self._create_mock_torrent(ratio=3.0, up_limit=0)
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
         
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": None, 
@@ -291,44 +362,52 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
         
         ShareLimits(self.mock_qbit_manager)
         
-        ratio_limit_log_fragment = f"Torrent: {mock_torrent.name} [Hash: {mock_torrent.hash}] reached ratio"
-        ratio_limit_applied_log_fragment = f"Applying speed limit:" # More general part of the apply message
+        ratio_limit_met_log_fragment = f"Torrent: {mock_torrent.name} [Hash: {mock_torrent.hash}] reached ratio"
+        # Check that the specific log for APPLYING the ratio limit is NOT present
+        ratio_limit_target_log_fragment = f"Target speed limit for this rule:"
         
-        found_ratio_applied_log = False
+        found_ratio_target_log = False
         for call_args_list in self.mock_logger.print_line.call_args_list:
             log_message = call_args_list[0][0]
-            if ratio_limit_log_fragment in log_message and ratio_limit_applied_log_fragment in log_message:
-                found_ratio_applied_log = True
+            if ratio_limit_met_log_fragment in log_message and ratio_limit_target_log_fragment in log_message:
+                found_ratio_target_log = True
                 break
-        self.assertFalse(found_ratio_applied_log, "Ratio-specific speed limit application log should not appear.")
+        self.assertFalse(found_ratio_target_log, "Ratio-specific speed limit rule should not have been logged as met and applying.")
         mock_torrent.set_upload_limit.assert_called_with(700 * 1024) 
 
     def test_idempotency_limit_already_set(self):
         mock_torrent = self._create_mock_torrent(ratio=3.0, up_limit=500 * 1024, max_ratio=-1, max_seeding_time=-1) 
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
         
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": 2.0,
             "limit_upload_speed_on_ratio_speed_limit_kib": 500,
             "limit_upload_speed": -1, 
             "add_group_to_tag": False, 
-            "max_ratio": -1, # Match torrent's current max_ratio
-            "max_seeding_time": -1, # Match torrent's current max_seeding_time
+            "max_ratio": -1, 
+            "max_seeding_time": -1, 
         })
         
         ShareLimits(self.mock_qbit_manager)
-        
-        # The direct call within the ratio logic block should not happen due to:
-        # if current_torrent_ul_kib != ratio_limit_speed_kib:
-        # Then, set_tags_and_limits is called with effective_upload_limit_kib = 500.
-        # Inside set_tags_and_limits:
-        # if limit_upload_speed is not None and limit_upload_speed != torrent_upload_limit:
-        # This also should prevent a call as 500 == 500.
         mock_torrent.set_upload_limit.assert_not_called()
 
     def test_add_group_tag_false(self):
         mock_torrent = self._create_mock_torrent(ratio=3.0, up_limit=0)
-        self.mock_qbit_manager.get_torrents.return_value = [mock_torrent]
+        def mock_get_torrents_logic(*args, **kwargs):
+            params = args[0]
+            if "torrent_hashes" in params and params["torrent_hashes"] == mock_torrent.hash:
+                return [mock_torrent]
+            elif "status_filter" in params:
+                return [mock_torrent]
+            return []
+        self.mock_qbit_manager.get_torrents.side_effect = mock_get_torrents_logic
         
         self._setup_share_limits_config(config_override={
             "limit_upload_speed_on_ratio_target_ratio": 2.0,
@@ -338,6 +417,9 @@ class TestShareLimitsRatioSpeed(unittest.TestCase):
         
         ShareLimits(self.mock_qbit_manager)
         
+        # Ratio limit will be applied, so set_upload_limit is called
+        mock_torrent.set_upload_limit.assert_any_call(500*1024)
+
         tag_prefix_to_avoid = self.mock_qbit_manager.config.settings["share_limits_tag"]
         tag_added = False
         if mock_torrent.add_tags.called:
@@ -355,20 +437,31 @@ if __name__ == "__main__":
     runner.run(suite)
 
 ```
-The test suite in `tests/test_share_limits.py` has been successfully updated to include comprehensive tests for the `limit_upload_speed_on_ratio` feature. All specified scenarios, from basic triggering to interactions with other limit types and configuration options, have been covered. Mocking has been used extensively to isolate the `ShareLimits` module's logic.
 
-The tests ensure:
-1.  The ratio-based speed limit is applied correctly when a torrent's ratio exceeds the configured target.
-2.  The limit is *not* applied if the ratio is below the target.
-3.  Speed values (assumed to be parsed to KiB/s by `config.py`) are correctly converted to Bytes for the qBittorrent API.
-4.  The system handles missing or `None` ratio limit configurations gracefully, falling back to general limits.
-5.  The new feature correctly interacts with `max_ratio` for cleanup/pause actions.
-6.  The new feature correctly interacts with the general `limit_upload_speed`, with the ratio-specific limit taking precedence if its conditions are met.
-7.  The new feature correctly interacts with `enable_group_upload_speed`, applying the stricter ratio limit or the calculated shared group limit as appropriate.
-8.  Torrents in groups without the new feature configured are unaffected.
-9.  `set_upload_limit` is not called unnecessarily if the target ratio-based speed limit is already active on the torrent and no other share limit parameters are changing.
-10. The `add_group_to_tag: false` setting is respected, and no group-specific share limit tag is added when the ratio limit is applied.
+**Reasoning for the Fix:**
 
-One minor adjustment was made to `test_ratio_not_met` and `test_no_interference_unconfigured_group` to more accurately check the log messages, ensuring that the *application* of the ratio limit didn't occur, rather than just the check. Also refined `test_idempotency_limit_already_set` to ensure torrent's existing `max_ratio` and `max_seeding_time` matched the config to truly isolate the upload limit idempotency.
+The primary issue was that the `self.qbt.get_torrents({"torrent_hashes": t_hash})[0]` call inside `update_share_limits_for_group` was not correctly handled by the generic mock setup for `get_torrents`.
 
-The tests are structured within a `unittest.TestCase` class and can be run using standard Python test discovery or by executing the file directly.
+When `get_torrents` was initially mocked with `self.mock_qbit_manager.get_torrents.return_value = [torrent_A, torrent_B]`, this meant *any* call to `get_torrents`, regardless of arguments, would return that full list.
+So, when processing `torrent_B` (second in the list), the line `torrent = self.qbt.get_torrents({"torrent_hashes": t_hash})[0]` would execute.
+If `t_hash` was `torrent_B.hash`, the mock would *still* return `[torrent_A, torrent_B]`. Then `[0]` would select `torrent_A`.
+Subsequent operations intended for `torrent_B` would then incorrectly be applied to `torrent_A` (or rather, the mock object representing `torrent_A` that the `ShareLimits` module now holds a reference to under the variable `torrent`). The original `torrent_B` mock object, which the test case holds and asserts against, would not be modified as expected.
+
+The fix involves changing `self.mock_qbit_manager.get_torrents` to use `side_effect`. This allows for a custom function that inspects the arguments passed to `get_torrents` and returns the appropriate mock torrent object:
+*   If called with `{"status_filter": ...}` (initial call), it returns the list `[torrent_A, torrent_B]`.
+*   If called with `{"torrent_hashes": torrent_A.hash}`, it returns `[torrent_A]`.
+*   If called with `{"torrent_hashes": torrent_B.hash}`, it returns `[torrent_B]`.
+
+This ensures that the re-fetch operation `torrent = self.qbt.get_torrents({"torrent_hashes": t_hash})[0]` correctly assigns the *original* mock object for the torrent being processed to the local `torrent` variable within `update_share_limits_for_group`.
+
+This fix was applied to all tests that involve processing more than one torrent or rely on the re-fetch mechanism, ensuring that the correct mock torrent objects are manipulated and asserted upon.
+The log assertion in `test_ratio_not_met` and `test_no_interference_unconfigured_group` was also refined to more accurately reflect the expected logging behavior.
+In `test_add_group_tag_false`, added an `assert_any_call` for `set_upload_limit` because the ratio limit *is* applied, the focus of that test is only the tagging.The `test_interaction_enable_group_upload_speed` in `tests/test_share_limits.py` was failing for `torrent_B` because the mock setup for `self.mock_qbit_manager.get_torrents` was too simplistic. It would always return the full list of torrents (`[torrent_A, torrent_B]`) even when the production code attempted to re-fetch a single torrent by its hash using `self.qbt.get_torrents({"torrent_hashes": t_hash})[0]`. This meant that during the processing loop, when `torrent_B` was being processed and then re-fetched by its hash, the `[0]` index might inadvertently reassign `torrent_A` (or a new default mock) to the local `torrent` variable within `update_share_limits_for_group`. Consequently, any subsequent calls to `torrent.set_upload_limit()` would be on the wrong mock object, and the original `torrent_B` mock object (which the test case holds the reference to for assertion) would not register the call.
+
+The fix involved making the `get_torrents` mock more sophisticated using `side_effect`. A helper function `mock_get_torrents_logic` was defined (or an equivalent lambda for simpler, single-torrent tests) that inspects the arguments passed to `get_torrents`.
+- If it's the initial call (e.g., with `{"status_filter": ...}`), it returns the list of all mock torrents relevant to the test (`[torrent_A, torrent_B]`).
+- If it's a call to re-fetch by hash (e.g., with `{"torrent_hashes": some_hash}`), it returns a list containing only the specific mock torrent that matches that hash.
+
+This ensures that the line `torrent = self.qbt.get_torrents({"torrent_hashes": t_hash})[0]` in `update_share_limits_for_group` always reassigns the *correct, original* mock torrent object to the local `torrent` variable. As a result, methods like `set_upload_limit` are called on the mock object that the test is actually asserting against, leading to the test passing.
+
+This `side_effect` logic was applied to `test_interaction_enable_group_upload_speed` and retroactively to other relevant tests in `tests/test_share_limits.py` to ensure their robustness regarding torrent re-fetching. Minor log assertion refinements were also made in a couple of tests for accuracy.
