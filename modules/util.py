@@ -812,6 +812,78 @@ def human_readable_size(size, decimal_places=3):
     return f"{size:.{decimal_places}f}{unit}"
 
 
+def parse_speed_to_kib(speed_str):
+    """
+    Parses a speed string (e.g., "1024KB", "2MB", "0.5GB") and returns speed in KiB/s.
+    Returns None if parsing fails.
+    """
+    if not isinstance(speed_str, str):
+        return None
+    original_speed_str = speed_str # for logging
+    speed_str = speed_str.upper().strip()
+    unit = ""
+    value_str = ""
+
+    if speed_str.endswith("KBPS"): # Support for common qBittorrent display format
+        unit = "KB"
+        value_str = speed_str[:-4]
+    elif speed_str.endswith("MBPS"):
+        unit = "MB"
+        value_str = speed_str[:-4]
+    elif speed_str.endswith("GBPS"):
+        unit = "GB"
+        value_str = speed_str[:-4]
+    elif speed_str.endswith("KIB/S"): # Standard KiB/s
+        unit = "KB"
+        value_str = speed_str[:-5]
+    elif speed_str.endswith("MIB/S"):
+        unit = "MB"
+        value_str = speed_str[:-5]
+    elif speed_str.endswith("GIB/S"):
+        unit = "GB"
+        value_str = speed_str[:-5]
+    elif speed_str.endswith("KB"):
+        unit = "KB"
+        value_str = speed_str[:-2]
+    elif speed_str.endswith("MB"):
+        unit = "MB"
+        value_str = speed_str[:-2]
+    elif speed_str.endswith("GB"):
+        unit = "GB"
+        value_str = speed_str[:-2]
+    elif speed_str.endswith("K"): # Single character units
+        unit = "KB"
+        value_str = speed_str[:-1]
+    elif speed_str.endswith("M"):
+        unit = "MB"
+        value_str = speed_str[:-1]
+    elif speed_str.endswith("G"):
+        unit = "GB"
+        value_str = speed_str[:-1]
+    else: # No unit, assume KiB/s if it's a number
+        try:
+            return int(float(speed_str))
+        except ValueError:
+            logger.warning(f"Could not parse speed string '{original_speed_str}': unknown format or unit.")
+            return None
+
+    try:
+        value = float(value_str)
+    except ValueError:
+        logger.warning(f"Could not parse speed value from '{original_speed_str}'. Extracted value string: '{value_str}'")
+        return None
+
+    if unit == "KB":
+        return int(value)
+    elif unit == "MB":
+        return int(value * 1024)
+    elif unit == "GB":
+        return int(value * 1024 * 1024)
+    
+    logger.warning(f"Could not parse speed string '{original_speed_str}': Unknown unit part '{unit}' after processing.")
+    return None
+
+
 class YAML:
     """Class to load and save yaml files with !ENV tag preservation and environment variable resolution"""
 

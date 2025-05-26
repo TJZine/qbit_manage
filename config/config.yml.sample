@@ -219,6 +219,12 @@ share_limits:
     min_last_active: 30d
     # <OPTIONAL> Limit Upload Speed <int>: Will limit the upload speed KiB/s (KiloBytes/second) (`-1` : No Limit)
     limit_upload_speed: 0
+    # <OPTIONAL> Limit Upload Speed on Ratio <float:str>: Will limit the upload speed (e.g. 1024KB or 1MB) on torrents that reached defined ratio.
+    # This speed limit remains active until other conditions like max_ratio are met.
+    # Example: limit_upload_speed_on_ratio: 2.0:1024KB
+    # This would limit the upload speed to 1024KB/s once the torrent reaches a share ratio of 2.0.
+    # Use format <ratio>:<speed> (e.g., 2.0:1024KB, 3.5:2MB, 0.5:500KB). Speed units can be KB, MB, GB.
+    limit_upload_speed_on_ratio:
     # <OPTIONAL> Enable Group Upload Speed <bool>: Upload speed limits are applied at the group level. This will take limit_upload_speed defined and divide it equally among the number of torrents in the group.
     enable_group_upload_speed: false
     # <OPTIONAL> cleanup <bool>: WARNING!! Setting this as true Will remove and delete contents of any torrents that satisfies the share limits (max time OR max ratio)
@@ -251,6 +257,12 @@ share_limits:
     priority: 999
     max_ratio: -1
     max_seeding_time: -1
+    # <OPTIONAL> Limit Upload Speed on Ratio <float:str>: Will limit the upload speed (e.g. 1024KB or 1MB) on torrents that reached defined ratio.
+    # This speed limit remains active until other conditions like max_ratio are met.
+    # Example: limit_upload_speed_on_ratio: 2.0:1024KB
+    # This would limit the upload speed to 1024KB/s once the torrent reaches a share ratio of 2.0.
+    # Use format <ratio>:<speed> (e.g., 2.0:1024KB, 3.5:2MB, 0.5:500KB). Speed units can be KB, MB, GB.
+    limit_upload_speed_on_ratio:
     cleanup: false
 
 recyclebin:

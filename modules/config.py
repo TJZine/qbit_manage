@@ -627,6 +627,48 @@ class Config:
                     do_print=False,
                     save=False,
                 )
+                # Parse limit_upload_speed_on_ratio
+                limit_upload_speed_on_ratio_str = self.util.check_for_attribute(
+                    self.data,
+                    "limit_upload_speed_on_ratio",
+                    parent="share_limits",
+                    subparent=group,
+                    default_is_none=True,  # Allow it to be not set
+                    do_print=False,
+                    save=False,
+                )
+                self.share_limits[group]["limit_upload_speed_on_ratio_target_ratio"] = None
+                self.share_limits[group]["limit_upload_speed_on_ratio_speed_limit_kib"] = None
+                if limit_upload_speed_on_ratio_str:
+                    try:
+                        parts = limit_upload_speed_on_ratio_str.split(":")
+                        if len(parts) != 2:
+                            raise ValueError("must be in the format <ratio>:<speed>")
+                        
+                        target_ratio = float(parts[0])
+                        if target_ratio < 0:
+                            raise ValueError("ratio must be non-negative")
+                        
+                        speed_limit_kib = util.parse_speed_to_kib(parts[1])
+                        if speed_limit_kib is None or speed_limit_kib < 0:
+                            raise ValueError(f"invalid speed format '{parts[1]}'")
+                        
+                        self.share_limits[group]["limit_upload_speed_on_ratio_target_ratio"] = target_ratio
+                        self.share_limits[group]["limit_upload_speed_on_ratio_speed_limit_kib"] = speed_limit_kib
+                        logger.trace(
+                            f"Share limit group '{group}': limit_upload_speed_on_ratio parsed: "
+                            f"Target Ratio: {target_ratio}, Speed Limit: {speed_limit_kib} KiB/s"
+                        )
+                    except ValueError as e:
+                        err_msg = (
+                            f"Config Error: Invalid format for 'limit_upload_speed_on_ratio' in share_limits group '{group}'. "
+                            f"Expected '<ratio>:<speed>' (e.g., '2.0:1024KB'), but got '{limit_upload_speed_on_ratio_str}'. Error: {e}"
+                        )
+                        self.notify(err_msg, "Config")
+                        # Decide if this should be a fatal error or just a warning
+                        # For now, log and continue with defaults (None, None)
+                        logger.error(err_msg)
+                
                 if self.share_limits[group]["custom_tag"]:
                     if (
                         self.share_limits[group]["custom_tag"] not in self.share_limits_custom_tags

@@ -193,10 +193,58 @@ class ShareLimits:
     def update_share_limits_for_group(self, group_name, group_config, torrents):
         """Updates share limits for torrents in a group"""
         group_upload_speed = group_config["limit_upload_speed"]
+        # Get ratio-specific speed limit settings from config
+        ratio_limit_target_ratio = group_config.get("limit_upload_speed_on_ratio_target_ratio")
+        ratio_limit_speed_kib = group_config.get("limit_upload_speed_on_ratio_speed_limit_kib")
 
         for torrent in torrents:
             t_name = torrent.name
             t_hash = torrent.hash
+            ratio_speed_limit_active_and_applied = False
+            effective_upload_limit_kib = group_config["limit_upload_speed"]
+
+            # New logic for limit_upload_speed_on_ratio
+            if ratio_limit_target_ratio is not None and ratio_limit_speed_kib is not None:
+                current_ratio = torrent.ratio
+                logger.trace(
+                    f"Torrent: {t_name} [Hash: {t_hash}] - Checking ratio-based speed limit. "
+                    f"Current Ratio: {current_ratio:.2f}, Target Ratio: {ratio_limit_target_ratio}, "
+                    f"Speed Limit if Met: {ratio_limit_speed_kib} KiB/s"
+                )
+                if current_ratio >= ratio_limit_target_ratio:
+                    current_torrent_ul_kib = round(torrent.up_limit / 1024) if torrent.up_limit > 0 else -1
+                    if current_torrent_ul_kib != ratio_limit_speed_kib:
+                        log_msg_ratio_limit = (
+                            f"Torrent: {t_name} [Hash: {t_hash}] reached ratio {current_ratio:.2f} >= "
+                            f"{ratio_limit_target_ratio}. Applying speed limit: {ratio_limit_speed_kib} KiB/s."
+                        )
+                        logger.print_line(log_msg_ratio_limit, self.config.loglevel)
+                        if not self.config.dry_run:
+                            torrent.set_upload_limit(ratio_limit_speed_kib * 1024) # API expects B/s
+                        
+                        if t_name not in self.torrents_updated: # Keep track of updated torrents
+                            self.torrents_updated.append(t_name)
+                        self.stats_tagged += 1 # Count as an update action
+                        
+                        # Resume torrent if needed, similar to how it's done later
+                        if group_config["resume_torrent_after_change"] and torrent.state_enum.is_paused:
+                            if not (is_tag_in_torrent(self.min_seeding_time_tag, torrent.tags) or
+                                    is_tag_in_torrent(self.min_num_seeds_tag, torrent.tags) or
+                                    is_tag_in_torrent(self.last_active_tag, torrent.tags)):
+                                if not self.config.dry_run:
+                                    torrent.resume()
+                                logger.print_line(
+                                    f"Resuming torrent {t_name} after applying ratio-based speed limit.", self.config.loglevel
+                                )
+                    else:
+                        logger.trace(
+                            f"Torrent: {t_name} [Hash: {t_hash}] reached ratio but speed limit {ratio_limit_speed_kib} KiB/s is already set."
+                        )
+                    effective_upload_limit_kib = ratio_limit_speed_kib # This limit takes precedence
+                    ratio_speed_limit_active_and_applied = True
+
+
+            # Original logic continues below, potentially using effective_upload_limit_kib
             if group_config["add_group_to_tag"]:
                 if group_config["custom_tag"]:
                     self.group_tag = group_config["custom_tag"]
@@ -207,19 +255,22 @@ class ShareLimits:
             tracker = self.qbt.get_tags(self.qbt.get_tracker_urls(torrent.trackers))
             check_max_ratio = group_config["max_ratio"] != torrent.max_ratio
             check_max_seeding_time = group_config["max_seeding_time"] != torrent.max_seeding_time
-            # Treat upload limit as -1 if it is set to 0 (unlimited)
-            torrent_upload_limit = -1 if round(torrent.up_limit / 1024) == 0 else round(torrent.up_limit / 1024)
-            if group_config["limit_upload_speed"] <= 0:
-                group_config["limit_upload_speed"] = -1
-            else:
-                if group_config["enable_group_upload_speed"]:
-                    logger.trace(
-                        "enable_group_upload_speed set to True.\n"
-                        f"Setting limit_upload_speed to {group_upload_speed} / {len(torrents)} = "
-                        f"{round(group_upload_speed / len(torrents))} kB/s"
-                    )
-                    group_config["limit_upload_speed"] = round(group_upload_speed / len(torrents))
-            check_limit_upload_speed = group_config["limit_upload_speed"] != torrent_upload_limit
+            
+            # Determine the effective upload speed to check against torrent's current limit
+            # This will be either the ratio_limit_speed_kib (if applied) or the general group_config["limit_upload_speed"]
+            # If ratio_speed_limit_active_and_applied is true, effective_upload_limit_kib is already set to ratio_limit_speed_kib
+            # Otherwise, we use the general group upload speed, possibly adjusted by enable_group_upload_speed
+            final_group_ul_speed_config_value = group_config["limit_upload_speed"]
+            if not ratio_speed_limit_active_and_applied: # Only consider group speed if ratio specific one isn't active
+                if final_group_ul_speed_config_value <= 0:
+                    effective_upload_limit_kib = -1 # Standardize unlimited
+                elif group_config["enable_group_upload_speed"] and len(torrents) > 0 : # Check len(torrents) to avoid division by zero
+                    effective_upload_limit_kib = round(group_upload_speed / len(torrents))
+                # else: effective_upload_limit_kib is already group_config["limit_upload_speed"] as initialized
+
+            torrent_current_actual_ul_kib = round(torrent.up_limit / 1024) if torrent.up_limit > 0 else -1
+            check_limit_upload_speed = effective_upload_limit_kib != torrent_current_actual_ul_kib
+            
             hash_not_prev_checked = t_hash not in self.torrent_hash_checked
 
             if self.group_tag:
@@ -273,10 +324,10 @@ class ShareLimits:
             logger.trace(f"Config Min Num Seeds vs Torrent Num Seeds: {group_config['min_num_seeds']} vs {torrent.num_complete}")
             logger.trace(f"check_max_seeding_time: {check_max_seeding_time}")
             logger.trace(
-                "Config Limit Upload Speed vs Torrent Limit Upload Speed: "
-                f"{group_config['limit_upload_speed']} vs {torrent_upload_limit}"
+                f"Effective Limit Upload Speed vs Torrent Current Actual Upload Speed: "
+                f"{effective_upload_limit_kib} KiB/s vs {torrent_current_actual_ul_kib} KiB/s"
             )
-            logger.trace(f"check_limit_upload_speed: {check_limit_upload_speed}")
+            logger.trace(f"check_limit_upload_speed: {check_limit_upload_speed}") # This now reflects the effective speed
             logger.trace(f"hash_not_prev_checked: {hash_not_prev_checked}")
             logger.trace(f"share_limits_not_yet_tagged: {share_limits_not_yet_tagged}")
             logger.trace(
@@ -302,6 +353,8 @@ class ShareLimits:
                 or check_limit_upload_speed
                 or share_limits_not_yet_tagged
                 or check_multiple_share_limits_tag
+                # Always update if ratio_speed_limit_active_and_applied, to ensure its speed is part of set_tags_and_limits
+                or ratio_speed_limit_active_and_applied 
             ) and hash_not_prev_checked:
                 if (
                     (
@@ -311,14 +364,20 @@ class ShareLimits:
                     )
                     or share_limits_not_yet_tagged
                     or check_multiple_share_limits_tag
+                    or ratio_speed_limit_active_and_applied # Ensure update if ratio limit was applied
                 ):
-                    logger.print_line(logger.insert_space(f"Torrent Name: {t_name}", 3), self.config.loglevel)
-                    logger.print_line(logger.insert_space(f"Tracker: {tracker['url']}", 8), self.config.loglevel)
-                    if self.group_tag:
-                        logger.print_line(logger.insert_space(f"Added Tag: {self.group_tag}", 8), self.config.loglevel)
-                    self.tag_and_update_share_limits_for_torrent(torrent, group_config)
-                    self.stats_tagged += 1
-                    self.torrents_updated.append(t_name)
+                    if not ratio_speed_limit_active_and_applied: # Avoid double printing if ratio logic already printed
+                        logger.print_line(logger.insert_space(f"Torrent Name: {t_name}", 3), self.config.loglevel)
+                        logger.print_line(logger.insert_space(f"Tracker: {tracker['url']}", 8), self.config.loglevel)
+                    
+                    if self.group_tag and (share_limits_not_yet_tagged or check_multiple_share_limits_tag):
+                         logger.print_line(logger.insert_space(f"Applying Tag: {self.group_tag}", 8), self.config.loglevel)
+
+                    self.tag_and_update_share_limits_for_torrent(torrent, group_config, effective_upload_limit_kib)
+                    if not ratio_speed_limit_active_and_applied: # Avoid double counting if ratio logic already counted
+                        self.stats_tagged += 1
+                        if t_name not in self.torrents_updated:
+                            self.torrents_updated.append(t_name)
 
             # Cleanup torrents if the torrent meets the criteria for deletion and cleanup is enabled
             if group_config["cleanup"]:
@@ -330,30 +389,54 @@ class ShareLimits:
                     self.tdel_dict[t_hash]["body"] = tor_reached_seed_limit
             self.torrent_hash_checked.append(t_hash)
 
-    def tag_and_update_share_limits_for_torrent(self, torrent, group_config):
+    def tag_and_update_share_limits_for_torrent(self, torrent, group_config, current_effective_upload_limit_kib):
         """Removes previous share limits tag, updates tag and share limits for a torrent, and resumes the torrent"""
         # Remove previous share_limits tag
         if not self.config.dry_run:
-            tag = is_tag_in_torrent(self.share_limits_tag, torrent.tags, exact=False)
-            if tag:
-                torrent.remove_tags(tag)
-            # Check if any of the previous share limits custom tags are there
-            for custom_tag in self.share_limits_custom_tags:
-                if is_tag_in_torrent(custom_tag, torrent.tags):
-                    torrent.remove_tags(custom_tag)
+            # Remove general share limit tags if group_tag is being applied or if custom_tag logic needs it
+            if self.group_tag:
+                tag_to_remove = is_tag_in_torrent(self.share_limits_tag, torrent.tags, exact=False)
+                if tag_to_remove:
+                    # Ensure not to remove the self.group_tag if it's a general prefix tag that matches
+                    tags_make_list = util.get_list(tag_to_remove)
+                    for t_rem in tags_make_list:
+                         if self.group_tag and t_rem.startswith(self.share_limits_tag) and t_rem != self.group_tag:
+                            torrent.remove_tags(t_rem)
+                         # If group_tag is not defined (add_group_to_tag is false), remove all general share limit tags
+                         elif not self.group_tag and t_rem.startswith(self.share_limits_tag):
+                            torrent.remove_tags(t_rem)
 
+
+            # Remove other custom tags if the current group_tag is a custom_tag or if no group_tag is set (to clean up old custom tags)
+            for custom_tag_iter in self.share_limits_custom_tags:
+                if is_tag_in_torrent(custom_tag_iter, torrent.tags):
+                    if self.group_tag == custom_tag_iter: # current group's tag is this custom_tag, skip removal
+                        continue
+                    # If current group_tag is different OR if add_group_to_tag is false (no current group tag)
+                    # then this custom_tag_iter is from a different group or an old one, so remove it.
+                    if not self.group_tag or (self.group_tag and self.group_tag != custom_tag_iter) :
+                        torrent.remove_tags(custom_tag_iter)
+        
         # Will tag the torrent with the group name if add_group_to_tag is True and set the share limits
         self.set_tags_and_limits(
             torrent=torrent,
             max_ratio=group_config["max_ratio"],
             max_seeding_time=group_config["max_seeding_time"],
-            limit_upload_speed=group_config["limit_upload_speed"],
-            tags=self.group_tag,
+            limit_upload_speed=current_effective_upload_limit_kib, # Use the passed effective speed limit
+            tags=self.group_tag, # self.group_tag can be None if add_group_to_tag is False
         )
         # Resume torrent if it was paused now that the share limit has changed
-        if torrent.state_enum.is_complete and group_config["resume_torrent_after_change"]:
-            if not self.config.dry_run:
-                torrent.resume()
+        # Ensure torrent is not paused due to min_seeding_time_tag etc.
+        if torrent.state_enum.is_paused and group_config["resume_torrent_after_change"]:
+            if not (is_tag_in_torrent(self.min_seeding_time_tag, torrent.tags) or
+                    is_tag_in_torrent(self.min_num_seeds_tag, torrent.tags) or
+                    is_tag_in_torrent(self.last_active_tag, torrent.tags)):
+                if not self.config.dry_run:
+                    torrent.resume()
+                logger.print_line(
+                    f"Resuming torrent {torrent.name} after general share limit update.", self.config.loglevel
+                )
+
 
     def assign_torrents_to_group(self, torrent_list):
         """Assign torrents to a share limit group based on its tags and category"""
