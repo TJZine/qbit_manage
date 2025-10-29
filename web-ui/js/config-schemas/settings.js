@@ -31,6 +31,13 @@ export const settingsSchema = {
             default: 'issue'
         },
         {
+            name: 'tag_tracker_error_ignore_urls',
+            type: 'array',
+            label: 'Tag Tracker Error Ignore URLs',
+            description: 'Tracker announce URLs or hosts that should be ignored by the `tag_tracker_error` command.',
+            items: { type: 'text' }
+        },
+        {
             name: 'nohardlinks_tag',
             type: 'text',
             label: 'No Hard Links Tag',

@@ -31,6 +31,7 @@ settings:
     - cross-seed
     - Upload
   tracker_error_tag: issue # Will set the tag of any torrents that do not have a working tracker.
+  tag_tracker_error_ignore_urls: [] # A list of tracker announce URLs or hosts that should be ignored when tagging tracker errors.
   nohardlinks_tag: noHL # Will set the tag of any torrents with no hardlinks.
   stalled_tag: stalledDL # Will set the tag of any torrents stalled downloading.
   share_limits_tag: ~share_limit # Will add this tag when applying share limits to provide an easy way to filter torrents by share limit group/priority for each torrent

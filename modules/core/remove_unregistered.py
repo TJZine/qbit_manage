@@ -27,6 +27,8 @@ class RemoveUnregistered:
         self.filter_completed = self.config.settings["rem_unregistered_filter_completed"]
         self.rem_unregistered_grace_minutes = self.config.settings["rem_unregistered_grace_minutes"]
         self.hashes = hashes
+        ignore_urls = getattr(self.config, "tag_tracker_error_ignore_urls", []) or []
+        self.tag_tracker_error_ignore_urls = self._build_ignore_url_set(ignore_urls)
 
         tag_error_msg = "Tagging Torrents with Tracker Errors" if self.cfg_tag_error else ""
         rem_unregistered_msg = "Removing Unregistered Torrents" if self.cfg_rem_unregistered else ""
@@ -57,6 +59,9 @@ class RemoveUnregistered:
             # Remove any error torrents Tags that are no longer unreachable.
             if self.tag_error in check_tags:
                 tracker = self.qbt.get_tags(self.qbt.get_tracker_urls(torrent.trackers))
+                announce_urls = [trk.url for trk in torrent.trackers if getattr(trk, "url", None)]
+                if self._should_skip_tracker_error(tracker, torrent, all_announce_urls=announce_urls):
+                    continue
                 self.stats_untagged += 1
                 body = []
                 body += logger.print_line(
@@ -118,6 +123,50 @@ class RemoveUnregistered:
             return False, 0.0
         age_minutes = age_seconds / 60.0
         return age_minutes < grace, age_minutes
+
+    def _build_ignore_url_set(self, urls):
+        normalized = set()
+        for url in urls:
+            normalized.update(self._normalize_tracker_urls(url))
+        return normalized
+
+    def _normalize_tracker_urls(self, url):
+        variants = set()
+        if not isinstance(url, str):
+            return variants
+        candidate = url.strip()
+        if not candidate:
+            return variants
+        stripped = candidate.rstrip("/")
+        for entry in (candidate, stripped):
+            if entry:
+                variants.add(entry)
+                variants.add(entry.lower())
+        truncated = util.trunc_val(candidate, "/")
+        if truncated:
+            trimmed = truncated.rstrip("/")
+            for entry in (truncated, trimmed):
+                if entry:
+                    variants.add(entry)
+                    variants.add(entry.lower())
+        return variants
+
+    def _should_skip_tracker_error(self, tracker, torrent, announce_url=None, all_announce_urls=None):
+        if not self.tag_tracker_error_ignore_urls:
+            return False
+
+        candidates = set()
+        if announce_url:
+            candidates.update(self._normalize_tracker_urls(announce_url))
+        if tracker and tracker.get("url"):
+            candidates.update(self._normalize_tracker_urls(tracker.get("url")))
+        if not candidates and all_announce_urls:
+            for url in all_announce_urls:
+                candidates.update(self._normalize_tracker_urls(url))
+        if candidates and candidates.intersection(self.tag_tracker_error_ignore_urls):
+            return True
+
+        return False
 
     def process_torrent_issues(self):
         """Process torrent issues."""
@@ -194,7 +243,7 @@ class RemoveUnregistered:
                                     self.del_unregistered(msg, tracker, torrent)
                     # Tag any error torrents
                     if self.cfg_tag_error and self.tag_error not in check_tags:
-                        self.tag_tracker_error(msg, tracker, torrent)
+                        self.tag_tracker_error(msg, tracker, torrent, trk.url)
 
             try:
                 process_single_torrent()
@@ -247,8 +296,13 @@ class RemoveUnregistered:
         duration = end_time - start_time
         logger.debug(f"Remove unregistered command completed in {duration:.2f} seconds")
 
-    def tag_tracker_error(self, msg, tracker, torrent):
+    def tag_tracker_error(self, msg, tracker, torrent, announce_url=None):
         """Tags any trackers with errors"""
+        if self._should_skip_tracker_error(tracker, torrent, announce_url=announce_url):
+            logger.debug(
+                f"Skipping tracker error tagging for torrent '{self.t_name}' due to ignored tracker URL."
+            )
+            return
         tor_error = ""
         tor_error += logger.insert_space(f"Torrent Name: {self.t_name}", 3) + "\n"
         tor_error += logger.insert_space(f"Status: {msg}", 9) + "\n"

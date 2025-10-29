@@ -300,6 +300,9 @@ class Config:
             "tracker_error_tag": self.util.check_for_attribute(
                 self.data, "tracker_error_tag", parent="settings", default="issue"
             ),
+            "tag_tracker_error_ignore_urls": self.util.check_for_attribute(
+                self.data, "tag_tracker_error_ignore_urls", parent="settings", var_type="list", default=[]
+            ),
             "nohardlinks_tag": self.util.check_for_attribute(self.data, "nohardlinks_tag", parent="settings", default="noHL"),
             "stalled_tag": self.util.check_for_attribute(self.data, "stalled_tag", parent="settings", default="stalledDL"),
             "share_limits_tag": self.util.check_for_attribute(
@@ -347,6 +350,7 @@ class Config:
         }
 
         self.tracker_error_tag = self.settings["tracker_error_tag"]
+        self.tag_tracker_error_ignore_urls = self.settings["tag_tracker_error_ignore_urls"]
         self.nohardlinks_tag = self.settings["nohardlinks_tag"]
         self.stalled_tag = self.settings["stalled_tag"]
         self.share_limits_tag = self.settings["share_limits_tag"]
