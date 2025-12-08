@@ -82,8 +82,14 @@ class RemoveUnregistered:
                     "torrent_tracker": tracker["url"],
                     "notifiarr_indexer": tracker["notifiarr"],
                 }
-                torrents_updated.append(t_name)
-                notify_attr.append(attr)
+                # Check if notifications should be suppressed for this tracker tag
+                if self._should_skip_tracker_error_notification(tracker):
+                    logger.debug(
+                        f"Suppressing untag notification for '{t_name}' - tracker tag in notify ignore list."
+                    )
+                else:
+                    torrents_updated.append(t_name)
+                    notify_attr.append(attr)
 
         self.config.webhooks_factory.notify(torrents_updated, notify_attr, group_by="tag")
 
