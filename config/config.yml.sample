@@ -31,6 +31,7 @@ settings:
     - cross-seed
     - Upload
   tracker_error_tag: issue # Will set the tag of any torrents that do not have a working tracker.
+  tag_tracker_error_notify_ignore_tags: [] # Suppress notifications for tracker errors from these tracker tags (tagging still occurs)
   nohardlinks_tag: noHL # Will set the tag of any torrents with no hardlinks.
   stalled_tag: stalledDL # Will set the tag of any torrents stalled downloading.
   private_tag: null # Will set the tag of any torrents that are private. (Set to null to disable)

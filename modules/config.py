@@ -300,6 +300,9 @@ class Config:
             "tracker_error_tag": self.util.check_for_attribute(
                 self.data, "tracker_error_tag", parent="settings", default="issue"
             ),
+            "tag_tracker_error_notify_ignore_tags": self.util.check_for_attribute(
+                self.data, "tag_tracker_error_notify_ignore_tags", parent="settings", var_type="list", default=[]
+            ),
             "nohardlinks_tag": self.util.check_for_attribute(self.data, "nohardlinks_tag", parent="settings", default="noHL"),
             "stalled_tag": self.util.check_for_attribute(self.data, "stalled_tag", parent="settings", default="stalledDL"),
             "private_tag": self.util.check_for_attribute(self.data, "private_tag", parent="settings", default_is_none=True),
@@ -351,6 +354,7 @@ class Config:
         }
 
         self.tracker_error_tag = self.settings["tracker_error_tag"]
+        self.tag_tracker_error_notify_ignore_tags = self.settings["tag_tracker_error_notify_ignore_tags"]
         self.nohardlinks_tag = self.settings["nohardlinks_tag"]
         self.stalled_tag = self.settings["stalled_tag"]
         self.private_tag = self.settings["private_tag"]

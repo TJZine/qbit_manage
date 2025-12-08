@@ -29,6 +29,9 @@ class RemoveUnregistered:
         self.rem_unregistered_max_torrents = self.config.settings["rem_unregistered_max_torrents"]
         self.hashes = hashes
         self.tracker_del_count = {}
+        # Build set of tracker tags to suppress notifications for
+        notify_ignore_tags = getattr(self.config, "tag_tracker_error_notify_ignore_tags", []) or []
+        self.tag_tracker_error_notify_ignore_tags = set(notify_ignore_tags)
 
         tag_error_msg = "Tagging Torrents with Tracker Errors" if self.cfg_tag_error else ""
         rem_unregistered_msg = "Removing Unregistered Torrents" if self.cfg_rem_unregistered else ""
@@ -120,6 +123,13 @@ class RemoveUnregistered:
             return False, 0.0
         age_minutes = age_seconds / 60.0
         return age_minutes < grace, age_minutes
+
+    def _should_skip_tracker_error_notification(self, tracker):
+        """Check if notifications should be suppressed for this tracker tag."""
+        if not self.tag_tracker_error_notify_ignore_tags:
+            return False
+        tracker_tags = set(tracker.get("tag") or [])
+        return bool(tracker_tags.intersection(self.tag_tracker_error_notify_ignore_tags))
 
     def process_torrent_issues(self):
         """Process torrent issues."""
@@ -288,8 +298,14 @@ class RemoveUnregistered:
             "torrent_tracker": tracker["url"],
             "notifiarr_indexer": tracker["notifiarr"],
         }
-        self.torrents_updated_issue.append(self.t_name)
-        self.notify_attr_issue.append(attr)
+        # Check if notifications should be suppressed for this tracker tag
+        if self._should_skip_tracker_error_notification(tracker):
+            logger.debug(
+                f"Suppressing notification for tracker error on '{self.t_name}' - tracker tag in notify ignore list."
+            )
+        else:
+            self.torrents_updated_issue.append(self.t_name)
+            self.notify_attr_issue.append(attr)
         if not self.config.dry_run:
             torrent.add_tags(tags=self.tag_error)
 

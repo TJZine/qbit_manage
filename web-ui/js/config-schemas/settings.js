@@ -31,6 +31,13 @@ export const settingsSchema = {
             default: 'issue'
         },
         {
+            name: 'tag_tracker_error_notify_ignore_tags',
+            type: 'array',
+            label: 'Tag Tracker Error Notify Ignore Tags',
+            description: 'Tracker tags for which notifications should be suppressed. Torrents will still be tagged with the error tag, but no webhook notification will be sent.',
+            items: { type: 'text' }
+        },
+        {
             name: 'nohardlinks_tag',
             type: 'text',
             label: 'No Hard Links Tag',
